@@ -15,5 +15,17 @@ CHIP RAM64 {
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    //xxxyyy, address[3..5] selects xxx 1 of 8 RAM8chips, address[0..2] then selects yyy, the address
+    DMux8Way(in=load, sel=address[3..5], a=oa, b=ob, c=oc, d=od, e=oe, f=of, g=og, h=oh);
+
+    RAM8(in=in, address=address[0..2], load=oa, out=oa1);
+    RAM8(in=in, address=address[0..2], load=ob, out=ob1);
+    RAM8(in=in, address=address[0..2], load=oc, out=oc1);
+    RAM8(in=in, address=address[0..2], load=od, out=od1);
+    RAM8(in=in, address=address[0..2], load=oe, out=oe1);
+    RAM8(in=in, address=address[0..2], load=of, out=of1);
+    RAM8(in=in, address=address[0..2], load=og, out=og1);
+    RAM8(in=in, address=address[0..2], load=oh, out=oh1);
+	   
+    Mux8Way16(sel=address[3..5], a=oa1, b=ob1, c=oc1, d=od1, e=oe1, f=of1, g=og1, h=oh1, out=out);
 }
