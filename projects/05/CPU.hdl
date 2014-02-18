@@ -39,5 +39,51 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-    // Put your code here:
+    //Route first mux to output instruction if A instruction, else alu output
+    Mux16(a=instruction, b=aluout1, out=muxout1, sel=instruction[15]);
+
+    //Pipe mux output into A reg.
+    //Set load bit to true if A instruction OR if C instruction and d1 bit is true
+    //Which means the computation's destination is the A register
+    //Pipe output directly into CPU addressM output, also fan out to PC and a mux
+    And(a=instruction[15], b=instruction[5], out=andout1);
+    Not(in=instruction[15], out=instructiona);
+    Or(a=instructiona, b=andout1, out=orout1);
+    ARegister(in=muxout1, load=orout1, out=aregout1, out[0..14]=aregout2, out[0..14]=addressM);
+
+    //Pipe A's output into a mux that decides the output based on the A bit
+    //of the C instruction
+    Mux16(a=aregout1, b=inM, sel=instruction[12], out=muxout2);
+
+    //Load D register based on instruction C bit d2
+    //And it being a C instruction
+    And(a=instruction[4], b=instruction[15], out=andout7);
+    DRegister(in=aluout2, load=andout7, out=dregout1);
+    
+    //Pipe in either A||M as well as D into the ALU.
+    //For control bits pull in all six C bits of the C instruction.
+    //Output to CPU outM and fan out into D and the first mux which leads to A
+    //Output control bits into...
+    ALU(x=dregout1, y=muxout2, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=outM, out=aluout1, out=aluout2, zr=zrout1, zr=zrout2, ng=ngout1, ng=ngout2);
+
+    //If d3 bit == 1 , writeM is true
+    And(a=instruction[3], b=instruction[15], out=writeM);
+
+    //Pipe A's output into PC, with various control bits
+    //Prepare load input by processing logic of jump bits + ALU control bit outputs
+    And(a=zrout1, b=instruction[1], out=andout2);
+    And(a=ngout1, b=instruction[2], out=andout3);
+    Not(in=zrout2, out=notzr);
+    Not(in=ngout2, out=notng);
+    And(a=notzr, b=notng, out=andout4);
+    And(a=andout4, b=instruction[0], out=andout5);
+    Or(a=andout2, b=andout3, out=orout2);
+    Or(a=orout2, b=andout5, out=orout3);
+    //Finally, to load, those conditions must be satisfied and it must
+    //be a C instruction
+    And(a=orout3, b=instruction[15], out=andout6);
+
+    //Load bit is true if any jump conditions above match the ALU output control bits
+    PC(in[0..14]=aregout2, load=andout6, inc=true, reset=reset, out[0..14]=pc);
+
 }
