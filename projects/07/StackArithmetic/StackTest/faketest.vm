@@ -1,0 +1,3 @@
+push constant 3
+push constant 4
+neg

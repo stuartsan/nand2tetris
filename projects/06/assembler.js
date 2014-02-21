@@ -4,7 +4,7 @@
  * Command line script that accepts an .asm file in the Hack machine language
  * symbolic format, passed via command line, and converts it to binary machine code.
  *
- * Ex: >> assembler MyGreatProgram.asm
+ * Ex: >> assembler.js MyGreatProgram.asm
  * Creates new file MyGreatProgram.hack in same directory as MyGreatProgram.asm
  */
 
