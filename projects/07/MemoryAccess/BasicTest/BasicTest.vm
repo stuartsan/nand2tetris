@@ -29,3 +29,55 @@ add
 sub
 push temp 6
 add
+
+//by hand first couple
+//push constant 10 (got that already)
+//pop local 0
+
+//pop the top thing and store it in D
+// @SP
+// M=M-1
+// A=M
+// D=M
+
+// //first pass a constant (arg2) in bc we need to add it to the base address
+// @0
+// D=A
+
+// //then set the value of @local to the a register
+// @local
+// A=M
+
+// //THEN really set that address to a+d
+// A=A+D
+
+// //OK:
+
+// @0     //replace num with num passed in
+// D=A
+// @LCL   //replace symbol with translated symbol
+// A=M
+// D=A+D  //calculate actual pointer
+// @R13
+// M=D    //now pointer is stored in r13
+
+// @SP
+// M=M-1  //decrement
+// A=M
+// D=M    //now d is the popped value
+// @R13
+// A=M
+// M=D
+
+// @0     //replace num with num passed in
+// D=A
+// @5   //replace 5 with 3 if pointer, this is temp
+// D=A+D
+// @R13
+// M=D    //now pointer is stored in r13
+
+
+
+
+
+

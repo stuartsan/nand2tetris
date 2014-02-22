@@ -1,0 +1,3 @@
+push constant 10
+pop local 9
+push this 7

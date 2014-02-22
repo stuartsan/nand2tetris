@@ -13,19 +13,21 @@
 
 var fs = require('fs'),
   path = require('path'),
-  asmFilePath = path.normalize(path.join(process.cwd(), process.argv[2]));
+  asmFilePath = path.normalize(path.join(process.cwd(), process.argv[2])),
+  asmFileExt = path.extname(asmFilePath),
+  asmFileName = path.basename(asmFilePath).replace(asmFileExt, '');
 
 /*
- * Cleaning, parsing, and translation fns
+ * Cleaning, parsing, and translation functions
  */
 
+//Split file data into lines, remove carraige returns, comments, and leading/trailing spaces
+//Then strip blank lines
 function cleanUp(data) {
-  //Split file data into lines, remove carraige returns, comments, and leading/trailing spaces
   var fileData = data.split('\n').map(function(item) {
     var result = item.indexOf('//') === -1 ? item : item.slice(0, item.indexOf('//'));
     return result.trim().replace(/\r/g, '');
   });
-  //Strip out blank lines and return
   return fileData.filter(function(item) { return item.length; });
 }
 
@@ -57,34 +59,25 @@ function writeArithmeticCmd(command){
     decrementSP = ['@SP', 'M=M-1'],     // --pointer
     loadValSP = ['A=M'],                // Loads SP value onto A
     storeValSP = ['A=M', 'D=M'];        // ^ then sets D to value pointed at by A
+  
+  var ops = {
+    add: 'M=M+D', sub: 'M=M-D', neg: 'M=-D', and: 'M=D&M',
+    or: 'M=D|M', not: 'M=!D', eq: 'D=M-D', gt: 'D=M-D', lt: 'D=M-D' 
+  };
 
   if (anyEqual(command.cmd, 'eq', 'gt', 'lt')) {
     return [].concat( 
       decrementSP, storeValSP, decrementSP,
-      loadValSP, compute(), buildConditional());
+      loadValSP, ops[command.cmd], buildConditional());
   }
   else if (anyEqual(command.cmd, 'not', 'neg')) {
     return [].concat(
-      decrementSP, storeValSP, compute(), incrementSP);
+      decrementSP, storeValSP, ops[command.cmd], incrementSP);
   }
   else {
     return [].concat( 
       decrementSP, storeValSP, decrementSP,
-      loadValSP, compute(), incrementSP);
-  }
-
-  function compute() {
-    switch(command.cmd) {
-      case 'add': return 'M=M+D';
-      case 'sub': return 'M=M-D';
-      case 'neg': return 'M=-D';
-      case 'and': return 'M=D&M';
-      case 'or':  return 'M=D|M';
-      case 'not': return 'M=!D';
-      case 'eq':  //Falling through on purpose, relax!
-      case 'gt':
-      case 'lt':  return 'D=M-D';
-    }
+      loadValSP, ops[command.cmd], incrementSP);
   }
 
   function buildConditional() {
@@ -101,10 +94,8 @@ function writeArithmeticCmd(command){
       else if (command.cmd === 'gt') { result = result.concat('D;JGT') }
       else if (command.cmd === 'lt') { result = result.concat('D;JLT') }
          
-      result = result.concat( '@' + falseLabel, '0;JMP', '(' + trueLabel + ')', 
+      return result.concat( '@' + falseLabel, '0;JMP', '(' + trueLabel + ')', 
         setTrue, '(' + falseLabel + ')', setFalse, '(' + continueLabel + ')');
-      
-      return result;
     }
 }
 
@@ -115,29 +106,56 @@ function writePushPopCmd(command) {
     segment = command.arg1,
     index = command.arg2,
     incrementSP = ['@SP', 'M=M+1'],       
-    decrementSP = ['@SP', 'M=M-1'],   
-    storeMemSP = ['@SP', 'A=M', 'M=D']; //stores value pointed at in SP
+    decrementSP = ['@SP', 'M=M-1'],
+    loadValSP = ['A=M'],                // Loads SP value onto A
+    storeValSP = ['A=M', 'D=M'],        // Stores value pointed at by SP in D
+    storeMemSP = ['@SP', 'A=M', 'M=D'], // Stores D into val pointed at by SP
+    //Pop value and store it in the mem location pointed to by R13
+    popAndStore = ['@SP', 'M=M-1', 'A=M', 'D=M', '@R13', 'A=M', 'M=D'];
 
-  if (cmdType === 'C_PUSH') {
-    if (segment === 'constant') {
-      //stores constant value in d register
-      result = result.concat( '@' + index, "D=A");
+  var mapping = {
+    local: 'LCL',
+    argument: 'ARG',
+    this: 'THIS',
+    that: 'THAT'
+  };
+
+  //Stores the calculated pointer in R13
+  function storeSegmentPointer(segment, index) {
+
+    //If it's static, all bets are off
+    if (segment === 'static') {
+      return ['@' + asmFileName + '.' + index, 'D=A', '@R13', 'M=D'];
     }
-    //ADDME: if not a constant number, load something else
-    //into the d register first
-    return result.concat(storeMemSP, incrementSP);
-  }
-}
 
-//Return command type based on first word (the command itself)
-function getCommandType(firstWord) {
-  if (anyEqual(firstWord, 'add', 'sub', 'neg', 'eq', 'gt', 'lt', 'and', 'or', 'not')) {
-    return 'C_ARITHMETIC';
+    var result = ['@' + index, 'D=A'];
+
+    //Add segment starting points
+    if (segment === 'temp') { result = result.concat('@5'); }
+    else if (segment === 'pointer') { result = result.concat('@3'); }
+    else { result = result.concat('@' + mapping[segment], 'A=M'); }
+
+    //Store pointer in R13
+    return result.concat('D=A+D', '@R13', 'M=D');
+  }
+  
+  //PUSH
+  if (cmdType === 'C_PUSH') {
+    
+    //Stores constant value in d register
+    if (segment === 'constant') { result = result.concat('@' + index, "D=A" ); }
+    
+    //Set up the value POINTED at on the stack to be stored
+    else { result = result.concat(storeSegmentPointer(segment, index), 'A=M', 'D=M'); }
+    
+    //Now store what's been put into D
+    return result.concat(storeMemSP, incrementSP);
   } 
-  else if (anyEqual(firstWord, 'push', 'pop', 'label', 'goto', 'if', 'function', 'return', 'call')){
-    return 'C_' + firstWord.toUpperCase();
-  } 
-  throw "Not a valid command type!!!1"
+
+  //POP
+  else if (cmdType === 'C_POP') { result = result.concat(storeSegmentPointer(segment, index), popAndStore); }
+  
+  return result;
 }
 
 /*
@@ -162,6 +180,16 @@ function anyEqual(firstArg, anotherArg, etc) {
     if (args[0] === args[i]) { return true };
   }
   return false;
+}
+
+//Return command type based on first word (the command itself)
+function getCommandType(firstWord) {
+  if (anyEqual(firstWord, 'add', 'sub', 'neg', 'eq', 'gt', 'lt', 'and', 'or', 'not')) {
+    return 'C_ARITHMETIC';
+  } 
+  else if (anyEqual(firstWord, 'push', 'pop', 'label', 'goto', 'if', 'function', 'return', 'call')){
+    return 'C_' + firstWord.toUpperCase();
+  }
 }
 
 /*
