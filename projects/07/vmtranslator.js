@@ -42,13 +42,18 @@ function parse(data) {
 //Return array of translated assembly
 function writeCode(data) {
   return data.map(function(item) {
-    if (item.cmdType === 'C_ARITHMETIC') {
-      return writeArithmeticCmd(item).join('\n');
-    } 
-    else if (anyEqual(item.cmdType, 'C_POP', 'C_PUSH')) {
-      return writePushPopCmd(item).join('\n');
+    switch(item.cmdType) {
+      case 'C_ARITHMETIC': return writeArithmeticCmd(item).join('\n');
+      case 'C_POP':       //Falling through on purpose, relax!
+      case 'C_PUSH':  return writePushPopCmd(item).join('\n');
+      case 'C_LABEL': return writeLabelCmd(item).join('\n');
+      case 'C_GOTO': return writeGotoCmd(item).join('\n');
+      case 'C_IF': return writeIfCmd(item).join('\n');
+      case 'C_FUNCTION': return writeFunction(item).join('\n');
+      case 'C_CALL': return writeCall(item).join('\n');
+      case 'C_RETURN': return writeReturn(item).join('\n');
+      default: throw 'Stop using nonsense VM commands!!1'
     }
-    else { throw "Stop using nonsense VM commands!!1"; }
   });
 }
 
@@ -157,6 +162,134 @@ function writePushPopCmd(command) {
   return result;
 }
 
+//*****these 3 prob need mods to handle same label name from two fns
+function writeLabelCmd(command) {  
+  var labelName = command.arg1;
+  return [ '(' + labelName + ')' ];
+}
+
+function writeGotoCmd(command) {
+  var dest = command.arg1;
+  return ['@' + dest, '0;JMP'];
+}
+
+function writeIfCmd(command) {
+  var dest = command.arg1;
+  //Pops top value, stores in D, jumps to dest if d != 0
+  return ['@SP', 'M=M-1', 'A=M', 'D=M', '@' + dest, 'D;JNE']
+}
+
+function writeFunction(command) {
+  var fnName = command.arg1,
+    numVars = command.arg2,     //# of local variables fn uses
+    declareLabel = ['(' + fnName + ')'],
+    result = [declareLabel],
+    initVar = writePushPopCmd({cmdType: 'C_PUSH', arg1: 'constant', arg2: 0});
+    
+    while (numVars > 0) {
+      result = result.concat(initVar);
+      numVars--;
+    }
+
+    return result;
+}
+
+function writeCall(command) {
+  var fnName = command.arg1,
+    args = command.arg2,    //# of args pushed onto stack
+    returnSymbol = makeUniqueLabel(fnName + 'Return'),
+    result = [],
+    storeMemSP = ['@SP', 'A=M', 'M=D'], // Stores D into val pointed at by SP
+    incrementSP = ['@SP', 'M=M+1'];
+
+    //Push return address onto stack
+    result = result.concat('@' +  returnSymbol, 'D=A', storeMemSP, incrementSP);
+
+    //Push pointers onto stack
+    result = result.concat(
+      pushPointer('LCL'),
+      pushPointer('ARG'),
+      pushPointer('THIS'),
+      pushPointer('THAT')
+    );
+
+    //Set ARG to SP - args - 5
+    result = result.concat(
+      '@' + args, 'D=A', '@SP', 'D=M-D', '@ARG', 'M=D', '@5', 'D=A', '@ARG', 'M=M-D'
+    );
+
+    //Set LCL to SP
+    result = result.concat(
+      '@SP', 'D=M', '@LCL', 'M=D'
+    );
+
+    //Jump to function
+    result = result.concat(
+      '@' + fnName, '0;JMP'
+    );
+
+    //Write return address label
+    result = result.concat(
+      '(' + returnSymbol + ')'
+    );
+
+    return result;
+
+    function pushPointer(name) {
+      return ['@' + name, 'D=M' ].concat(storeMemSP, incrementSP);
+    }
+
+}
+
+function writeReturn(command) {
+  var result = [];
+
+  //Store FRAME in R14, temp var referencing LCL's value
+  result = result.concat(
+    ['@LCL', 'D=M', '@R14', 'M=D']
+  );
+
+  //Store return address in temp var R15
+  result = result.concat(
+    setBasePointer(5, 'R15')
+  );
+
+  //Pop top stack val into location pointed at by ARG
+  result = result.concat(
+    ['@SP', 'M=M-1', 'A=M', 'D=M', '@ARG', 'A=M', 'M=D']  
+  );
+
+  //Reposition SP to ARG+1
+  result = result.concat(
+    ['@1', 'D=A', '@ARG', 'D=M+D', '@SP', 'M=D']
+  );
+
+  //Set all the other virtual segment base pointers
+  result = result.concat(
+    setBasePointer(1, 'THAT'),
+    setBasePointer(2, 'THIS'),
+    setBasePointer(3, 'ARG'),
+    setBasePointer(4, 'LCL')
+  );
+
+  //Goto return address
+  result = result.concat(
+    ['@R15', 'A=M', '0;JMP']
+  );
+
+  return result;
+
+  function setBasePointer(count, storeWhere) {
+    return ['@' + count, 'D=A', '@R14', 'D=M-D', 'A=D', 'D=M', '@' + storeWhere, 'M=D'];
+  }
+
+}
+
+//Outputs bootstrap code
+function writeInit() {
+  return ['@256', 'D=A', '@SP', 'M=D'].concat(writeCall({arg1: 'Sys.init', arg2: 0}));
+}
+
 /*
  * Helper functions
  */
@@ -185,8 +318,11 @@ function anyEqual(firstArg, anotherArg, etc) {
 function getCommandType(firstWord) {
   if (anyEqual(firstWord, 'add', 'sub', 'neg', 'eq', 'gt', 'lt', 'and', 'or', 'not')) {
     return 'C_ARITHMETIC';
-  } 
-  else if (anyEqual(firstWord, 'push', 'pop', 'label', 'goto', 'if', 'function', 'return', 'call')){
+  }
+  else if (firstWord === 'if-goto') {
+    return 'C_IF'
+  }
+  else if (anyEqual(firstWord, 'push', 'pop', 'label', 'goto', 'function', 'return', 'call')){
     return 'C_' + firstWord.toUpperCase();
   }
 }
@@ -206,6 +342,9 @@ var inputPath = path.normalize(path.join(process.cwd(), process.argv[2])),
   output = [],
   outputPath = '';
 
+//Add initialization code to beginning
+output = output.concat( writeInit() );
+
 //Put either the individual file, or all the .vm files in the directory, into a queue
 //for processing
 if (isDir) {
@@ -222,7 +361,7 @@ else {
   psQueueue.push(inputPath);  
 }
 
-//Sort so that sys init file always processed first...otherwise we don't care about order
+//Sort so sys init file always at the top of the file for human convenience
 psQueueue.sort(function(a, b){
   return path.basename(a) === INIT_FILE ? -1 : 1;
 });
