@@ -1,3 +1,0 @@
-push constant 99
-pop pointer 0
-push pointer 0

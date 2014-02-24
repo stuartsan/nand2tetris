@@ -1,5 +1,7 @@
 #!/usr/local/bin/node
 
+'use strict';
+
 /*
  * Command line script that accepts one or more .vm files in the Hack fake VM language,
  * passed via command line, and converts to Hack assembly.
@@ -12,10 +14,7 @@
  */
 
 var fs = require('fs'),
-  path = require('path'),
-  asmFilePath = path.normalize(path.join(process.cwd(), process.argv[2])),
-  asmFileExt = path.extname(asmFilePath),
-  asmFileName = path.basename(asmFilePath).replace(asmFileExt, '');
+  path = require('path');
 
 /*
  * Cleaning, parsing, and translation functions
@@ -125,7 +124,7 @@ function writePushPopCmd(command) {
 
     //If it's static, all bets are off
     if (segment === 'static') {
-      return ['@' + asmFileName + '.' + index, 'D=A', '@R13', 'M=D'];
+      return ['@' + currentFileName + '.' + index, 'D=A', '@R13', 'M=D'];
     }
 
     var result = ['@' + index, 'D=A'];
@@ -193,14 +192,49 @@ function getCommandType(firstWord) {
 }
 
 /*
- * Execution: open the file, run it through everything, then write it.
+ * Execution: open file(s), process, then write output.
  */
 
-//Open original file
-var file = fs.readFileSync(asmFilePath, 'utf8');
+var inputPath = path.normalize(path.join(process.cwd(), process.argv[2])),
+  inputExt = path.extname(inputPath),
+  inputName = path.basename(inputPath).replace(inputExt, ''),
+  VM_EXT = '.vm',
+  INIT_FILE = 'Sys.vm',
+  currentFileName = '',
+  isDir = (inputExt === ''),
+  psQueueue = [],
+  output = [],
+  outputPath = '';
 
-//Parse/translation party
-var translated = writeCode(parse(cleanUp(file)));
+//Put either the individual file, or all the .vm files in the directory, into a queue
+//for processing
+if (isDir) {
+  fs.readdirSync(inputPath).forEach(function(file) {
+    if (path.extname(file) === VM_EXT) {
+      psQueueue.push(path.normalize(path.join(inputPath, file)));
+    }
+  });
+} 
+else {
+  if (inputExt !== VM_EXT) {
+    throw "Hay this translator is only for VM files!"
+  }
+  psQueueue.push(inputPath);  
+}
+
+//Sort so that sys init file always processed first...otherwise we don't care about order
+psQueueue.sort(function(a, b){
+  return path.basename(a) === INIT_FILE ? -1 : 1;
+});
+
+psQueueue.forEach(function(filePath) {
+  //While processing each, currentFileName is set accordingly
+  currentFileName = path.basename(filePath).replace(VM_EXT, '');
+  output = output.concat(writeCode(parse(cleanUp(fs.readFileSync(filePath, 'utf8')))));
+});
+
+//Set up output path
+outputPath = isDir ? path.join(inputPath, inputName + '.asm') : inputPath.replace('vm', 'asm');
 
 //Write translated Hack assembly to file
-fs.writeFileSync(asmFilePath.replace('vm', 'asm'), translated.join('\n'), 'utf8');
+fs.writeFileSync(outputPath, output.join('\n'), 'utf8');
