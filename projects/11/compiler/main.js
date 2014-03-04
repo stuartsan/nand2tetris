@@ -52,5 +52,5 @@ psQueueue.forEach(function(filePath) {
   var output = compiler.execute();
 
   //Write file
-  fs.writeFileSync(filePath.replace(JACK_EXT, '.mine.vm'), output, 'utf8');
+  fs.writeFileSync(filePath.replace(JACK_EXT, '.vm'), output.join('\n'), 'utf8');
 });

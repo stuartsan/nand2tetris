@@ -54,10 +54,7 @@ Tokenizer.prototype = {
   },
 
   getTokenVal: function(token) {
-    if (token === '<') { return '&lt;'; }
-    else if (token === '>') { return '&gt;'; }
-    else if (token === '&') { return '&amp;'; }
-    else if (token.charAt(0) === '"') { return token.replace(/"/g, ''); }
+    if (token.charAt(0) === '"') { return token.replace(/"/g, ''); }
     else { return token; }
   },
 

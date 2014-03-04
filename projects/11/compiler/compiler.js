@@ -1,375 +1,382 @@
 var utils = require('./utils'),
   VmWriter = require('./vmwriter');
 
-
 module.exports = Compiler;
 
 function Compiler(stream, symTable) {
   this.tokens = stream;
   this.currentTokenIdx = 0;
+  this.currentSubroutineVoid = false;
   this.symTable = symTable;
   this.className = null;
+  this.output = [];
 }
 
 Compiler.prototype = {
   constructor: Compiler,
 
-  xmlOpenTag: function(elem) {
-    return '\n<' + elem + '>';
-  },
-
-  getCurrentToken: function() {
-    return this.tokens[this.currentTokenIdx];
-  },
-
-  //Gets token at + or - count from current
+  //Gets token at + or - count from current. By default returns current token.
   getRelativeToken: function(count) {
     return this.tokens[this.currentTokenIdx + (count || 0)];
   },  
 
-  //Will advance token by one, by default. But can also 
+  //Advances token by one, by default. But also accepts a number of tokens to advance by.
   advanceToken: function(num) {
     this.currentTokenIdx = this.currentTokenIdx + (num || 1);
   },
 
-  xmlCloseTag: function(elem) {
-    return '\n</' + elem + '>';
+  appendOutput: function(item) {
+    this.output = this.output.concat(item);
   },
 
-  wrapInXML: function(token) {
-    return '\n<' + token.type + '> ' + token.val + ' </' + token.type + '>';
-  },
-
-  wrapAndContinue: function(num) {
-    var result = '';
-    while (num--) {
-      result += this.wrapInXML(this.getCurrentToken());
-      this.advanceToken();
-    } 
-    return result;
-  },
+  /* 
+   * Each of the following compilation methods, beginning with compileClass, checks where 
+   * we're at in the token stream, generates any necessary code output, and recursively calls
+   * other compilation methods for syntax elements inside of itself, advancing the current
+   * token stream position accordingly and incrementally adding to this.output.
+   */
 
   compileClass: function() {
-    var result = this.xmlOpenTag('class');
-    var output = [];
-
-    //Class identifier happens here at ct + 1
-    //So let's set property to it! Then all recursive calls can access it.
     this.className = this.getRelativeToken(1).val;
-
-    // result += this.wrapAndContinue(3);
     this.advanceToken(3);
 
-    while (utils.anyEqual(this.getCurrentToken().val, 'static', 'field')) {
-      // result += this.compileClassVarDec();
-      output = output.concat( this.compileClassVarDec() );
+    while (utils.anyEqual(this.getRelativeToken(0).val, 'static', 'field')) {
+      this.compileClassVarDec();
     } 
 
-    while (utils.anyEqual(this.getCurrentToken().val, 'constructor', 'function', 'method')) {
-      // result += this.compileSubroutine();
-      output = output.concat( this.compileSubroutine() );
+    while (utils.anyEqual(this.getRelativeToken(0).val, 'constructor', 'function', 'method')) {
+      this.currentSubroutineVoid = this.getRelativeToken(1).val === 'void';
+      this.compileSubroutine();
     }
-
-    //This is the last one so don't continue
-    // result += this.wrapInXML(this.getCurrentToken());
-
-    // result += this.xmlCloseTag('class');
-    // return result;
-    return output;
   },
 
   compileClassVarDec: function() {
-    var result = this.xmlOpenTag('classVarDec');
-
-    var idKind = this.getCurrentToken().val;
-    var idType = this.getRelativeToken(1);
-
-    var idx = this.symTable.addIdentifier(this.getRelativeToken(2).val, idType, idKind);
-
-    //FIXME: here static and field vars must be handled. unclear what
-    //to do with fields...dont need yet anyway.
-
-    // result += this.wrapAndContinue(3);
-
-
-    while (this.getCurrentToken().val === ',') {
-      this.symTable.addIdentifier(this.getRelativeToken(1).val, idType, idKind);      
-      result += this.wrapAndContinue(2);
-    }
-
-    result += this.wrapAndContinue(1);
-
-    result += this.xmlCloseTag('classVarDec');
-    return result;
-  },
-
-  compileSubroutine: function() {
-    var result = this.xmlOpenTag('subroutineDec');
-    var output = [];
-
-    if (utils.anyEqual(this.getCurrentToken().val, 'constructor', 'function')) {
-      output = output.concat(VmWriter.writeFunction(this.className + '.' + this.getRelativeToken(1).val, 2));
-    }
-
-    console.log(output)
-    result += this.wrapAndContinue(4);
-    result += this.compileParameterList();
-    result += this.wrapAndContinue(1);
-    result += this.xmlOpenTag('subroutineBody');
-    result += this.wrapAndContinue(1);
-
-    while (this.getCurrentToken().val === 'var' && this.getCurrentToken().type === 'keyword') {
-      result += this.compileVarDec();
-    }
-
-    result += this.compileStatements();
-    result += this.wrapAndContinue(1);
-    result += this.xmlCloseTag('subroutineBody');
-
-    result += this.xmlCloseTag('subroutineDec');
-    return result;
-  
-  },
-
-  compileParameterList: function() {
-    var result = this.xmlOpenTag('parameterList');
-
-    //These must be arguments
-    var idKind = 'arg';
-
-    if (this.getCurrentToken().val !== ')') {
-      this.symTable.addIdentifier(this.getRelativeToken(1).val, this.getCurrentToken().val, idKind);
-      result += this.wrapAndContinue(2);
-    }
-
-    while (this.getCurrentToken().val === ',') {
-      this.symTable.addIdentifier(this.getRelativeToken(2).val, this.getRelativeToken(1).val, idKind);
-      result += this.wrapAndContinue(3);
-    }
-
-    result += this.xmlCloseTag('parameterList');
-    return result;
-  },
-
-  compileVarDec: function() {
-    var result = this.xmlOpenTag('varDec');
-
-    var idKind = 'var';
-    var idType = this.getRelativeToken(1).val;
+    var idKind = this.getRelativeToken(0).val,
+      idType = this.getRelativeToken(1).val;
 
     this.symTable.addIdentifier(this.getRelativeToken(2).val, idType, idKind);
 
-    result += this.wrapAndContinue(3);
+    this.advanceToken(3);
 
-    while (this.getCurrentToken().val === ',') {
-      this.symTable.addIdentifier(this.getRelativeToken(1).val, idType, idKind);
-      result += this.wrapAndContinue(2);
+    while (this.getRelativeToken(0).val === ',') {
+      this.symTable.addIdentifier(this.getRelativeToken(1).val, idType, idKind);      
+      this.advanceToken(2);
     }
-    result += this.wrapAndContinue(1);
 
-    result += this.xmlCloseTag('varDec');
-    return result;
+    this.advanceToken(1);
   },
-  compileStatements: function() {
-    var result = this.xmlOpenTag('statements');
 
-    while (utils.anyEqual(this.getCurrentToken().val, 'let', 'if', 'while', 'do', 'return')) {
-      switch (this.getCurrentToken().val) {
-        case 'let':
-          result += this.compileLet();
-          break;
-        case 'if':
-          result += this.compileIf();
-          break;
-        case 'while':
-          result += this.compileWhile();
-          break;
-        case 'do':
-          result += this.compileDo();
-          break;
-        case 'return':
-          result += this.compileReturn();
-          break;
+  compileSubroutine: function() {
+    var fnCall,
+      localVars,
+      fields,
+      subroutineName = this.getRelativeToken(2).val,
+      subroutineType = this.getRelativeToken(0).val;
+    
+    //Wipe out existing subroutine table
+    this.symTable.startSubroutine();
+
+    this.advanceToken(4);
+    this.compileParameterList();
+
+    this.advanceToken(2);
+
+    while (this.getRelativeToken(0).val === 'var' && this.getRelativeToken(0).type === 'keyword') {
+      this.compileVarDec();
+    }
+    
+    localVars = this.symTable.varCount('var');
+    this.appendOutput( VmWriter.writeFunction(this.className + '.' + subroutineName + ' ' + localVars) );
+
+    fields = this.symTable.varCount('field');
+    if (subroutineType === 'method') {
+      this.appendOutput( VmWriter.writePush('argument', 0) );
+      this.appendOutput( VmWriter.writePop('pointer', 0) );
+    } 
+    else if (subroutineType === 'constructor') {
+      this.appendOutput( VmWriter.writePush('constant', fields) );
+      this.appendOutput( VmWriter.writeCall('Memory.alloc', 1) );
+      this.appendOutput( VmWriter.writePop('pointer', 0) );
+    }
+
+    this.compileStatements();
+    this.advanceToken(1);
+  },
+
+  compileParameterList: function() {
+    var paramCount = 0,
+    idKind = 'arg';
+
+    if (this.getRelativeToken(0).val !== ')') {
+      this.symTable.addIdentifier(this.getRelativeToken(1).val, this.getRelativeToken(0).val, idKind);
+      this.advanceToken(2);
+      paramCount++;
+    }
+
+    while (this.getRelativeToken(0).val === ',') {
+      this.symTable.addIdentifier(this.getRelativeToken(2).val, this.getRelativeToken(1).val, idKind);
+      this.advanceToken(3);
+      paramCount++;
+    }
+
+    //Returns paramCount so the caller can compile subroutine with correct # of args
+    return paramCount;
+  },
+
+  compileVarDec: function() {
+    var idKind = 'var',
+      idType = this.getRelativeToken(1).val;
+
+    this.symTable.addIdentifier(this.getRelativeToken(2).val, idType, idKind);
+    this.advanceToken(3);
+
+    while (this.getRelativeToken(0).val === ',') {
+      this.symTable.addIdentifier(this.getRelativeToken(1).val, idType, idKind);
+      this.advanceToken(2);
+    }
+    this.advanceToken(1);
+  },
+
+  compileStatements: function() {
+    while (utils.anyEqual(this.getRelativeToken(0).val, 'let', 'if', 'while', 'do', 'return')) {
+      switch (this.getRelativeToken(0).val) {
+        case 'let': this.compileLet(); break;
+        case 'if': this.compileIf(); break;
+        case 'while': this.compileWhile(); break;
+        case 'do': this.compileDo(); break;
+        case 'return': this.compileReturn(); break;
       }
     }    
-
-    result += this.xmlCloseTag('statements');
-    return result;
   },
   
   compileLet: function() {
-    var result = this.xmlOpenTag('letStatement');
+    var dest;
 
     //Here we get identifier, it's already been defined
-    this.symTable.getIdentifier(this.getRelativeToken(1).val);
+    dest = this.symTable.getIdentifier(this.getRelativeToken(1).val);
 
-    //do something with it
+    this.advanceToken(2);
 
-    result += this.wrapAndContinue(2);
-
-    if (this.getCurrentToken().val === '['){
-      result += this.wrapAndContinue(1);
-      result += this.compileExpression();
-      result += this.wrapAndContinue(1);
+    if (this.getRelativeToken(0).val === '['){
+      this.advanceToken(1);
+      this.compileExpression();
+      this.advanceToken(1);
     }
 
-    result += this.wrapAndContinue(1);
-    result += this.compileExpression();
-    result += this.wrapAndContinue(1);
+    this.advanceToken(1);
+    this.compileExpression();
 
-    result += this.xmlCloseTag('letStatement');
-    return result;
+    //Store result accordingly
+    this.appendOutput( VmWriter.writePop(dest.kind, dest.idx) );
+    this.advanceToken(1);
   },
 
   compileIf: function() {
-    var result = this.xmlOpenTag('ifStatement');    
+    var ifThis = VmWriter.getUniqueLabel('if'),
+      elseThat = VmWriter.getUniqueLabel('else');
 
-    result += this.wrapAndContinue(2);
-    result += this.compileExpression();
-    result += this.wrapAndContinue(2);
-    result += this.compileStatements();
-    result += this.wrapAndContinue(1);
+    this.advanceToken(2);
+    this.compileExpression();
 
-    if (this.getCurrentToken().val === 'else') {
-      result += this.wrapAndContinue(2);
-      result += this.compileStatements();      
-      result += this.wrapAndContinue(1);
+    this.appendOutput( VmWriter.writeLogic('~') );
+    this.appendOutput( VmWriter.writeIf(elseThat) );
+
+    this.advanceToken(2);
+    this.compileStatements();
+    this.advanceToken(1);
+
+    this.appendOutput( VmWriter.writeGoto(ifThis) );
+    this.appendOutput( VmWriter.writeLabel(elseThat));
+    if (this.getRelativeToken(0).val === 'else') {
+      this.advanceToken(2);
+      this.compileStatements();      
+      this.advanceToken(1);
     }
+    this.appendOutput( VmWriter.writeLabel(ifThis));
 
-    result += this.xmlCloseTag('ifStatement');
-    return result;
   },
 
   compileWhile: function() {
-    var result = this.xmlOpenTag('whileStatement');
+    var loopStart = VmWriter.getUniqueLabel('whilestart'),
+      loopEnd = VmWriter.getUniqueLabel('whileend');
 
-    result += this.wrapAndContinue(2);
-    result += this.compileExpression();
-    result += this.wrapAndContinue(2);
-    result += this.compileStatements();
-    result += this.wrapAndContinue(1);
+    this.appendOutput( VmWriter.writeLabel(loopStart) );
 
-    result += this.xmlCloseTag('whileStatement');
-    return result;
+    this.advanceToken(2);
+    this.compileExpression();
+    this.advanceToken(1);
+
+    this.appendOutput( VmWriter.writeLogic('~') );
+    this.appendOutput( VmWriter.writeIf(loopEnd) );
+
+    this.advanceToken(1);
+    this.compileStatements();
+    this.advanceToken(1);
+
+    this.appendOutput( VmWriter.writeGoto(loopStart) );
+    this.appendOutput( VmWriter.writeLabel(loopEnd) );
   },
   
   compileDo: function() {
-    var result = this.xmlOpenTag('doStatement');
-
-    result += this.wrapAndContinue(1);
-    result += this.compileSubroutineCall();
-    result += this.wrapAndContinue(1);
-
-    result += this.xmlCloseTag('doStatement');
-    return result;
+    this.advanceToken(1);
+    this.compileSubroutineCall();
+    this.appendOutput( VmWriter.writePop('temp', 0) );
+    this.advanceToken(1);
   },
   
   compileReturn: function() {
-    var result = this.xmlOpenTag('returnStatement');
 
-    result += this.wrapAndContinue(1);
+    this.advanceToken(1);
 
-    if (this.getCurrentToken().val !== ';') {
-      result += this.compileExpression();
+    if (this.getRelativeToken(0).val !== ';') {
+      this.compileExpression();
     }
-    
-    result += this.wrapAndContinue(1);
 
-    result += this.xmlCloseTag('returnStatement');
-    return result; 
+    this.advanceToken(1);
+
+    if (this.currentSubroutineVoid) {
+      this.appendOutput( VmWriter.writePush('constant', 0) );
+    }
+    this.appendOutput( VmWriter.writeReturn() );
   },
 
   compileExpression: function() {
-    var result = this.xmlOpenTag('expression');
+    var operator;
     
-    result += this.compileTerm();
+    this.compileTerm();
 
-    while (utils.anyEqual(this.getCurrentToken().val, '+', '-', '*', '/', '&amp;', '|', '&lt;', '&gt;', '=')) {
-      result += this.wrapAndContinue(1);
-      result += this.compileTerm();
+    while (utils.anyEqual(this.getRelativeToken(0).val, '+', '-', '*', '/', '&', '|', '<', '>', '=')) {
+      operator = this.getRelativeToken(0).val;
+      this.advanceToken(1);
+      this.compileTerm();
+      this.appendOutput(VmWriter.writeArithmetic(operator));
     }
-
-    result += this.xmlCloseTag('expression');
-    return result; 
   },
 
   compileExpressionList: function() {
-    var result = this.xmlOpenTag('expressionList');
+    var expressionCount = 0;
 
-    if (this.getCurrentToken().val !== ')') {
-      result += this.compileExpression();
-      while (this.getCurrentToken().val === ',') {
-        result += this.wrapAndContinue(1);
-        result += this.compileExpression();
+    if (this.getRelativeToken(0).val !== ')') {
+      expressionCount++
+      this.compileExpression();
+
+      while (this.getRelativeToken(0).val === ',') {
+        expressionCount++
+        this.advanceToken(1);
+        this.compileExpression();
       }
     }
-
-    result += this.xmlCloseTag('expressionList');
-    return result;
+    
+    return expressionCount;
   },
 
   compileSubroutineCall: function() {
-    var result = '';
+      var expressionCount = 0,
+        name;
 
-    this.symTable.getIdentifier(this.getCurrentToken().val)
-    //the identifier will only really be used in the first case below
-    //but just do the result of above || token value...or whatever
 
+    //Call like this: something.doIt()
     if (this.getRelativeToken(1).val === '.') {
-      result += this.wrapAndContinue(4);
-      result += this.compileExpressionList();
-      result += this.wrapAndContinue(1);
-    }
-    else if (this.getRelativeToken(1).val === '(') {
-      result += this.wrapAndContinue(2);
-      result += this.compileExpressionList();
-      result += this.wrapAndContinue(1);
-    } 
-    else {
-      throw "explosion!!!1";
+      var nameData = this.symTable.getIdentifier(this.getRelativeToken().val);
+
+      //Static method, e.g. constructor
+      if (!nameData) {
+        name = this.getRelativeToken().val + '.' + this.getRelativeToken(2).val;
+      }
+      //Class method called on object instance
+      else {
+        expressionCount++;
+        name = nameData.type + '.' + this.getRelativeToken(2).val;
+        // this.appendOutput( VmWriter.writePush('pointer', 0) );
+        this.appendOutput( VmWriter.writePush(nameData.kind, nameData.idx) );
+      }
+
+      this.advanceToken(4);
     }
 
-    return result;
+    //Call like this: doit()
+    //Must be a method of the class we're in
+    else if (this.getRelativeToken(1).val === '(') {
+      expressionCount++;
+      this.appendOutput( VmWriter.writePush('pointer', 0) );
+      name = this.className + '.' + this.getRelativeToken(0).val;
+      this.advanceToken(2);
+    }     
+
+    expressionCount += this.compileExpressionList();
+    this.advanceToken(1);
+
+    this.appendOutput( VmWriter.writeCall(name, expressionCount) );
   },
 
   compileTerm: function() {
-    var result = this.xmlOpenTag('term');
+    var unaryOp,
+      identifier,
+      segment,
+      keywordMapped;
 
-    //if ct type is 'identifier' then do getIdentifier.
-    //if it doesn't return an obj, that's bc it's a class/subroutine ident.
-    //i think that means, just use the symbol itself (or Class.Subrtn)
-    this.symTable.getIdentifier( this.getRelativeToken(0) );
-    //then insert this puppy into the code,
-    //obviously doing different things with it depending on the sitch
-
-
+    //Accessing array item
     if (this.getRelativeToken(1).val === '[') {
-      result += this.wrapAndContinue(2);
-      result += this.compileExpression();
-      result += this.wrapAndContinue(1);
+      this.advanceToken(2);
+      this.compileExpression();
+      this.advanceToken(1);
     }
-    else if (utils.anyEqual(this.getCurrentToken().val, '-', '~')) {
-      result += this.wrapAndContinue(1);
-      result += this.compileTerm();
+
+    //Unary op + term. In this case, output the term then the unary operator.
+    else if (utils.anyEqual(this.getRelativeToken(0).val, '-', '~')) {
+      unaryOp = this.getRelativeToken(0).val;
+      this.advanceToken(1);
+      this.compileTerm();
+      this.appendOutput( VmWriter.writeLogic(unaryOp) );
     }
-    else if (this.getCurrentToken().val === '(') {
-      result += this.wrapAndContinue(1);
-      result += this.compileExpression();
-      result += this.wrapAndContinue(1); 
+
+    //Nested expression -- just keep recursing!
+    else if (this.getRelativeToken(0).val === '(') {
+      this.advanceToken(1);
+      this.compileExpression();
+      this.advanceToken(1); 
     }
+
+    //Subroutine call -- self explanatory
     else if (utils.anyEqual(this.getRelativeToken(1).val, '(', '.')) {
-      result += this.compileSubroutineCall();
+      this.compileSubroutineCall();
     }
+
+    //We've recursed all the way to constant or identifier
     else {
-      result += this.wrapAndContinue(1);
+      if (this.getRelativeToken().type === 'integerConstant') {
+        this.appendOutput( VmWriter.writePush('constant', this.getRelativeToken().val) );
+      } 
+      else if (this.getRelativeToken().type === 'keyword') {
+        switch (this.getRelativeToken().val) {
+          case 'null':
+          case 'false': 
+            keywordMapped = [ VmWriter.writePush('constant', '0') ];
+            break;
+          case 'true':
+            keywordMapped = [ VmWriter.writePush('constant', '1'), 'neg'];
+            break;
+          case 'this':
+            keywordMapped = [ VmWriter.writePush('pointer', '0') ];
+            break;
+          default: console.log('======default situation============')
+        }
+        this.appendOutput(keywordMapped);
+      }
+      else {
+        identifier = this.symTable.getIdentifier( this.getRelativeToken(0).val );
+        this.appendOutput( VmWriter.writePush(identifier.kind, identifier.idx) );        
+      }
+
+      this.advanceToken(1);
     }
-    result += this.xmlCloseTag('term');
-    return result;
   },
 
   execute: function() {
-    if (this.getCurrentToken().val === 'class') {
-      return this.compileClass();
+    if (this.getRelativeToken(0).val === 'class') {
+      this.compileClass();
+      console.log(this.output) //REMOVEREMOVEREMOVE
+      return this.output;
     } else {
       throw 'Uhhh programs have to start with classes SRY';
     }
