@@ -6,7 +6,7 @@ module.exports = Compiler;
 
 function Compiler(stream) {
   this.currentTokenIdx = 0;
-  this.currentSubroutineVoid = false;
+  this.currentSubroutine = {};
   this.className = null;
   this.tokens = stream;
   this.symTable = new SymTable();
@@ -42,7 +42,8 @@ Compiler.prototype = {
     } 
 
     while (utils.anyEqual(this.getRelativeToken(0).val, 'constructor', 'function', 'method')) {
-      this.currentSubroutineVoid = this.getRelativeToken(1).val === 'void';
+      this.currentSubroutine.void = this.getRelativeToken(1).val === 'void';
+      this.currentSubroutine.type = this.getRelativeToken(0).val;
       this.compileSubroutine();
     }
   },
@@ -243,7 +244,7 @@ Compiler.prototype = {
 
     this.advanceToken(1);
 
-    if (this.currentSubroutineVoid) {
+    if (this.currentSubroutine.void) {
       this.vmWriter.writePush('constant', 0);
     }
     this.vmWriter.writeReturn();
@@ -388,6 +389,9 @@ Compiler.prototype = {
       }
       else {
         identifier = this.symTable.getIdentifier( this.getRelativeToken(0).val );
+        if (this.currentSubroutine.type === 'method' && identifier.kind === 'arg') {
+          identifier.idx++;
+        }
         this.vmWriter.writePush(identifier.kind, identifier.idx);        
       }
 
@@ -398,7 +402,6 @@ Compiler.prototype = {
   execute: function() {
     if (this.getRelativeToken(0).val === 'class') {
       this.compileClass();
-      console.log(this.vmWriter.output) //REMOVEREMOVEREMOVE
       return this.vmWriter.output;
     } else {
       throw 'Uhhh programs have to start with classes SRY';

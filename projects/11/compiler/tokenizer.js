@@ -22,7 +22,7 @@ Tokenizer.prototype = {
 
   //Do dirty RegEx things to first just split everything up. Then categorize tokens and return them.
   tokenize: function(str) {
-    var keywords = 'class|constructor|function|method|field|static|var|int|char|boolean|void|true|false|null|this|let|do|if|else|while|return',
+    var keywords = ' class | constructor | function | method | field | static | var | int | char | boolean | void | true | false | null | this | let | do | if | else | while | return ',
       symbols = '[{}()\\[\\]\\.;,&\\+\\-\\*\\/|<>=~]',
       integers = '\\d+',
       identifiers = '\\w+',
@@ -31,8 +31,9 @@ Tokenizer.prototype = {
       token,
       tokens = [];
 
-      while ((token = pattern.exec(str)) !== null) {      
-        tokens.push({ type: this.getTokenType(token[0]), val: this.getTokenVal(token[0]) });
+      while ((token = pattern.exec(str)) !== null) {
+        token = token[0].trim();      
+        tokens.push({ type: this.getTokenType(token), val: this.getTokenVal(token) });
       }
       
       return tokens;
