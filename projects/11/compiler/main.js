@@ -13,8 +13,7 @@
  var fs = require('fs'),
   path = require('path'),
   Tokenizer = require('./tokenizer'),
-  Compiler = require('./compiler'),
-  SymTable = require('./symboltable');
+  Compiler = require('./compiler'); 
 
 var inputPath = path.normalize(path.join(process.cwd(), process.argv[2])),
   inputExt = path.extname(inputPath),
@@ -44,11 +43,8 @@ psQueueue.forEach(function(filePath) {
   var tokenizer = new Tokenizer(fs.readFileSync(filePath, 'utf8'));
   var tokenized = tokenizer.execute();
 
-  //Create new symbol table
-  var symTable = new SymTable();
-
-  //Compile tokenized stream. Give the compiler a symtable.
-  var compiler = new Compiler(tokenized, symTable);
+  //Compile tokenized stream.
+  var compiler = new Compiler(tokenized);
   var output = compiler.execute();
 
   //Write file

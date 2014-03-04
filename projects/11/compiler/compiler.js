@@ -1,15 +1,16 @@
 var utils = require('./utils'),
+  SymTable = require('./symboltable'),
   VmWriter = require('./vmwriter');
 
 module.exports = Compiler;
 
-function Compiler(stream, symTable) {
-  this.tokens = stream;
+function Compiler(stream) {
   this.currentTokenIdx = 0;
   this.currentSubroutineVoid = false;
-  this.symTable = symTable;
   this.className = null;
-  this.output = [];
+  this.tokens = stream;
+  this.symTable = new SymTable();
+  this.vmWriter = new VmWriter();
 }
 
 Compiler.prototype = {
@@ -23,10 +24,6 @@ Compiler.prototype = {
   //Advances token by one, by default. But also accepts a number of tokens to advance by.
   advanceToken: function(num) {
     this.currentTokenIdx = this.currentTokenIdx + (num || 1);
-  },
-
-  appendOutput: function(item) {
-    this.output = this.output.concat(item);
   },
 
   /* 
@@ -86,17 +83,17 @@ Compiler.prototype = {
     }
     
     localVars = this.symTable.varCount('var');
-    this.appendOutput( VmWriter.writeFunction(this.className + '.' + subroutineName + ' ' + localVars) );
+    this.vmWriter.writeFunction(this.className + '.' + subroutineName + ' ' + localVars);
 
     fields = this.symTable.varCount('field');
     if (subroutineType === 'method') {
-      this.appendOutput( VmWriter.writePush('argument', 0) );
-      this.appendOutput( VmWriter.writePop('pointer', 0) );
+      this.vmWriter.writePush('argument', 0);
+      this.vmWriter.writePop('pointer', 0);
     } 
     else if (subroutineType === 'constructor') {
-      this.appendOutput( VmWriter.writePush('constant', fields) );
-      this.appendOutput( VmWriter.writeCall('Memory.alloc', 1) );
-      this.appendOutput( VmWriter.writePop('pointer', 0) );
+      this.vmWriter.writePush('constant', fields) ;
+      this.vmWriter.writeCall('Memory.alloc', 1);
+      this.vmWriter.writePop('pointer', 0);
     }
 
     this.compileStatements();
@@ -150,16 +147,19 @@ Compiler.prototype = {
   },
   
   compileLet: function() {
-    var dest;
+    var dest,
+      isArray = false;
 
-    //Here we get identifier, it's already been defined
     dest = this.symTable.getIdentifier(this.getRelativeToken(1).val);
 
     this.advanceToken(2);
 
     if (this.getRelativeToken(0).val === '['){
+      isArray = true;
       this.advanceToken(1);
       this.compileExpression();
+      this.vmWriter.writePush(dest.kind, dest.idx);
+      this.vmWriter.writeArithmetic('+');
       this.advanceToken(1);
     }
 
@@ -167,60 +167,69 @@ Compiler.prototype = {
     this.compileExpression();
 
     //Store result accordingly
-    this.appendOutput( VmWriter.writePop(dest.kind, dest.idx) );
+    if (isArray) {
+      this.vmWriter.writePop('temp', 0);
+      this.vmWriter.writePop('pointer', 1);
+      this.vmWriter.writePush('temp', 0);
+      this.vmWriter.writePop('that', 0);
+    } 
+    else {
+      this.vmWriter.writePop(dest.kind, dest.idx);
+    }
+
     this.advanceToken(1);
   },
 
   compileIf: function() {
-    var ifThis = VmWriter.getUniqueLabel('if'),
-      elseThat = VmWriter.getUniqueLabel('else');
+    var ifThis = this.vmWriter.getUniqueLabel('if'),
+      elseThat = this.vmWriter.getUniqueLabel('else');
 
     this.advanceToken(2);
     this.compileExpression();
 
-    this.appendOutput( VmWriter.writeLogic('~') );
-    this.appendOutput( VmWriter.writeIf(elseThat) );
+    this.vmWriter.writeLogic('~');
+    this.vmWriter.writeIf(elseThat);
 
     this.advanceToken(2);
     this.compileStatements();
     this.advanceToken(1);
 
-    this.appendOutput( VmWriter.writeGoto(ifThis) );
-    this.appendOutput( VmWriter.writeLabel(elseThat));
+    this.vmWriter.writeGoto(ifThis);
+    this.vmWriter.writeLabel(elseThat);
     if (this.getRelativeToken(0).val === 'else') {
       this.advanceToken(2);
       this.compileStatements();      
       this.advanceToken(1);
     }
-    this.appendOutput( VmWriter.writeLabel(ifThis));
+    this.vmWriter.writeLabel(ifThis);
 
   },
 
   compileWhile: function() {
-    var loopStart = VmWriter.getUniqueLabel('whilestart'),
-      loopEnd = VmWriter.getUniqueLabel('whileend');
+    var loopStart = this.vmWriter.getUniqueLabel('whilestart'),
+      loopEnd = this.vmWriter.getUniqueLabel('whileend');
 
-    this.appendOutput( VmWriter.writeLabel(loopStart) );
+    this.vmWriter.writeLabel(loopStart);
 
     this.advanceToken(2);
     this.compileExpression();
     this.advanceToken(1);
 
-    this.appendOutput( VmWriter.writeLogic('~') );
-    this.appendOutput( VmWriter.writeIf(loopEnd) );
+    this.vmWriter.writeLogic('~');
+    this.vmWriter.writeIf(loopEnd);
 
     this.advanceToken(1);
     this.compileStatements();
     this.advanceToken(1);
 
-    this.appendOutput( VmWriter.writeGoto(loopStart) );
-    this.appendOutput( VmWriter.writeLabel(loopEnd) );
+    this.vmWriter.writeGoto(loopStart);
+    this.vmWriter.writeLabel(loopEnd);
   },
   
   compileDo: function() {
     this.advanceToken(1);
     this.compileSubroutineCall();
-    this.appendOutput( VmWriter.writePop('temp', 0) );
+    this.vmWriter.writePop('temp', 0);
     this.advanceToken(1);
   },
   
@@ -235,9 +244,9 @@ Compiler.prototype = {
     this.advanceToken(1);
 
     if (this.currentSubroutineVoid) {
-      this.appendOutput( VmWriter.writePush('constant', 0) );
+      this.vmWriter.writePush('constant', 0);
     }
-    this.appendOutput( VmWriter.writeReturn() );
+    this.vmWriter.writeReturn();
   },
 
   compileExpression: function() {
@@ -249,7 +258,7 @@ Compiler.prototype = {
       operator = this.getRelativeToken(0).val;
       this.advanceToken(1);
       this.compileTerm();
-      this.appendOutput(VmWriter.writeArithmetic(operator));
+      this.vmWriter.writeArithmetic(operator);
     }
   },
 
@@ -271,11 +280,11 @@ Compiler.prototype = {
   },
 
   compileSubroutineCall: function() {
-      var expressionCount = 0,
+      var argsCount = 0,
         name;
 
 
-    //Call like this: something.doIt()
+    //Function/method call with class, e.g. classOrVar.doIt()
     if (this.getRelativeToken(1).val === '.') {
       var nameData = this.symTable.getIdentifier(this.getRelativeToken().val);
 
@@ -283,30 +292,30 @@ Compiler.prototype = {
       if (!nameData) {
         name = this.getRelativeToken().val + '.' + this.getRelativeToken(2).val;
       }
+
       //Class method called on object instance
       else {
-        expressionCount++;
+        argsCount++;
         name = nameData.type + '.' + this.getRelativeToken(2).val;
-        // this.appendOutput( VmWriter.writePush('pointer', 0) );
-        this.appendOutput( VmWriter.writePush(nameData.kind, nameData.idx) );
+        // this.vmWriter.writePush('pointer', 0);
+        this.vmWriter.writePush(nameData.kind, nameData.idx);
       }
 
       this.advanceToken(4);
     }
 
-    //Call like this: doit()
-    //Must be a method of the class we're in
+    //Class method call without class name, e.g. doit()
     else if (this.getRelativeToken(1).val === '(') {
-      expressionCount++;
-      this.appendOutput( VmWriter.writePush('pointer', 0) );
+      argsCount++;
+      this.vmWriter.writePush('pointer', 0);
       name = this.className + '.' + this.getRelativeToken(0).val;
       this.advanceToken(2);
     }     
 
-    expressionCount += this.compileExpressionList();
+    argsCount += this.compileExpressionList();
     this.advanceToken(1);
 
-    this.appendOutput( VmWriter.writeCall(name, expressionCount) );
+    this.vmWriter.writeCall(name, argsCount);
   },
 
   compileTerm: function() {
@@ -315,10 +324,15 @@ Compiler.prototype = {
       segment,
       keywordMapped;
 
-    //Accessing array item
+    //Accessing array item: add item's base address (ct) and val of expression
     if (this.getRelativeToken(1).val === '[') {
+      var baseAddress = this.symTable.getIdentifier(this.getRelativeToken().val);
       this.advanceToken(2);
       this.compileExpression();
+      this.vmWriter.writePush( baseAddress.kind, baseAddress.idx );
+      this.vmWriter.writeArithmetic('+');
+      this.vmWriter.writePop('pointer', 1);
+      this.vmWriter.writePush('that', 0);
       this.advanceToken(1);
     }
 
@@ -327,7 +341,7 @@ Compiler.prototype = {
       unaryOp = this.getRelativeToken(0).val;
       this.advanceToken(1);
       this.compileTerm();
-      this.appendOutput( VmWriter.writeLogic(unaryOp) );
+      this.vmWriter.writeLogic(unaryOp);
     }
 
     //Nested expression -- just keep recursing!
@@ -345,27 +359,36 @@ Compiler.prototype = {
     //We've recursed all the way to constant or identifier
     else {
       if (this.getRelativeToken().type === 'integerConstant') {
-        this.appendOutput( VmWriter.writePush('constant', this.getRelativeToken().val) );
+        this.vmWriter.writePush('constant', this.getRelativeToken().val);
       } 
       else if (this.getRelativeToken().type === 'keyword') {
         switch (this.getRelativeToken().val) {
           case 'null':
           case 'false': 
-            keywordMapped = [ VmWriter.writePush('constant', '0') ];
+            this.vmWriter.writePush('constant', '0');
             break;
           case 'true':
-            keywordMapped = [ VmWriter.writePush('constant', '1'), 'neg'];
+            this.vmWriter.writePush('constant', '1');
+            this.vmWriter.writeLogic('-');
             break;
           case 'this':
-            keywordMapped = [ VmWriter.writePush('pointer', '0') ];
+            this.vmWriter.writePush('pointer', '0');
             break;
-          default: console.log('======default situation============')
         }
-        this.appendOutput(keywordMapped);
+        
+      }
+      else if (this.getRelativeToken().type === 'stringConstant') {
+        var str = this.getRelativeToken().val;
+        this.vmWriter.writePush('constant', str.length);
+        this.vmWriter.writeCall('String.new', 1);
+        for (var i = 0; i < str.length; i++) {
+          this.vmWriter.writePush('constant', str.charCodeAt(i));
+          this.vmWriter.writeCall('String.appendChar', 2);
+        }
       }
       else {
         identifier = this.symTable.getIdentifier( this.getRelativeToken(0).val );
-        this.appendOutput( VmWriter.writePush(identifier.kind, identifier.idx) );        
+        this.vmWriter.writePush(identifier.kind, identifier.idx);        
       }
 
       this.advanceToken(1);
@@ -375,8 +398,8 @@ Compiler.prototype = {
   execute: function() {
     if (this.getRelativeToken(0).val === 'class') {
       this.compileClass();
-      console.log(this.output) //REMOVEREMOVEREMOVE
-      return this.output;
+      console.log(this.vmWriter.output) //REMOVEREMOVEREMOVE
+      return this.vmWriter.output;
     } else {
       throw 'Uhhh programs have to start with classes SRY';
     }

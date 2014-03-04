@@ -1,12 +1,22 @@
- module.exports = {
+module.exports = VmWriter;
+
+function VmWriter() {
+  this.output = [];
+}
+
+ VmWriter.prototype = {
+
+  appendOutput: function(item) {
+    this.output = this.output.concat(item);
+  },
   
   writePush: function(segment, index) {
-    return 'push ' + this.translateSegment(segment) + ' ' + index;
+    this.appendOutput('push ' + this.translateSegment(segment) + ' ' + index);
   },
 
   //see above
   writePop: function(segment, index) {
-    return 'pop ' + this.translateSegment(segment) + ' ' + index;
+    this.appendOutput('pop ' + this.translateSegment(segment) + ' ' + index);
   },
 
   //segments == const,arg,local,static,this,that,pointer,temp
@@ -14,7 +24,7 @@
     switch (segment) {
       case 'var': return 'local';
       case 'arg': return 'argument';
-      case 'static': return 'tacos';
+      case 'static': return 'static';
       case 'field': return 'this';
       default: return segment;
     }
@@ -33,7 +43,7 @@
       '>': 'gt', 
       '=': 'eq'
     };
-    return lookup[command];
+    this.appendOutput(lookup[command]);
   },
 
   writeLogic: function(command) {
@@ -41,11 +51,11 @@
       '-': 'neg',
       '~': 'not'
     };
-    return lookup[command];
+    this.appendOutput(lookup[command]);
   },
 
   writeLabel: function(label) {
-    return 'label ' + label; 
+    this.appendOutput('label ' + label); 
   },
 
   //Caches its own results to guarantee a unique label is created on each call.
@@ -59,26 +69,24 @@
     return word + (fn.cache[word] = 0);
   },
 
-  //goto some label
   writeGoto: function(label) {
-    return 'goto ' + label;
+    this.appendOutput('goto ' + label);
   },
 
-  //goto some label IF stack value != 0
   writeIf: function(label) {
-    return 'if-goto ' + label;
+    this.appendOutput('if-goto ' + label);
   },
 
   writeCall: function(name, nargs) {
-    return 'call ' + name + ' ' + nargs;
+    this.appendOutput('call ' + name + ' ' + nargs);
   },
 
   writeFunction: function(name, nlocals) {
-    return 'function ' + name + ' ' + ( nlocals || '' );
+    this.appendOutput('function ' + name + ' ' + ( nlocals || '' ));
   },
 
   writeReturn: function() {
-    return 'return';
+    this.appendOutput('return');
   }
 
  };
