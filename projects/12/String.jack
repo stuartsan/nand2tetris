@@ -8,53 +8,136 @@
  */
 class String {
 
+    field Array array; //underlying array represented by string
+    field int maxLen;
+    field int strLen;
+
     /** Constructs a new empty String with a maximum length of maxLength. */
     constructor String new(int maxLength) {
+        if (maxLength < 1) {
+            let maxLength = 1;     //VM emulator complains
+        }
+        let array = Array.new(maxLength);
+        let maxLen = maxLength;
+        let strLen = 0;
+        return this;
     }
 
     /** De-allocates the string and frees its space. */
     method void dispose() {
+        do Memory.deAlloc(this);
+        return;
     }
 
     /** Returns the current length of this String. */
     method int length() {
+        return strLen;
     }
 
     /** Returns the character at location j. */
     method char charAt(int j) {
+        return array[j];
     }
 
     /** Sets the j'th character of this string to be c. */
     method void setCharAt(int j, char c) {
+        let array[j] = c;
+        return;
     }
 
     /** Appends the character c to the end of this String.
      *  Returns this string as the return value. */
     method String appendChar(char c) {
+        let array[strLen] = c;
+        let strLen = strLen + 1;
+        return this;
     }
 
     /** Erases the last character from this String. */
     method void eraseLastChar() {
+        let strLen = strLen - 1;
+        return;
     }
 
     /** Returns the integer value of this String until the first non
      *  numeric character. */
     method int intValue() {
+        var int v, count, d;
+        var boolean isNeg;
+
+        let v = 0;
+        let count = 0;
+        let isNeg = charAt(0) = String.minus();
+
+        if (isNeg) {
+            let count = count + 1;   //Ignore the first character (-) if it's a negative #
+        }
+
+        while ( count < strLen ) {
+            let d = charAt(count) - 48;
+            let v = (v * 10) + d;
+            let count = count + 1;
+        }
+
+        if (isNeg) {
+            return -v;
+        }
+
+        return v;
     }
 
     /** Sets this String to hold a representation of the given number. */
     method void setInt(int number) {
+       
+        let strLen = 0; //Wipe out existing string
+
+        if (number < 0) {
+            do appendChar(String.minus());
+            let number = Math.abs(number);       
+        }
+
+        do setIntRecurse(number);
+
+        return;
+    }
+
+    method void setIntRecurse(int number) {
+        
+        var int quotient, lastDigit, character;
+
+        let quotient = number / 10;
+        let lastDigit = number - (quotient * 10);
+        let character = lastDigit + 48;
+
+        if (number < 10) {
+            do appendChar(character);
+        }
+
+        else {
+            do setIntRecurse(quotient);
+            do appendChar(character);
+        }
+        
+        return;
     }
 
     /** Returns the new line character. */
     function char newLine() {
+        return 128;
     }
 
     /** Returns the backspace character. */
     function char backSpace() {
+        return 129;
     }
 
     /** Returns the double quote (") character. */
     function char doubleQuote() {
+        return 34;
+    }
+
+    /** Returns the minus (-) character. */
+    function char minus() {
+        return 45;
     }
 }

@@ -8,33 +8,219 @@
  */
 class Screen {
 
+    static int screen;
+    static boolean color;
+    static Array twoToThe;
+
     /** Initializes the Screen. */
     function void init() {
+        let screen = 16384;
+        let color = true;
+        let twoToThe = Array.new(16);
+        let twoToThe[0] = 1;
+        let twoToThe[1] = 2;
+        let twoToThe[2] = 4;
+        let twoToThe[3] = 8;
+        let twoToThe[4] = 16;
+        let twoToThe[5] = 32;
+        let twoToThe[6] = 64;
+        let twoToThe[7] = 128;
+        let twoToThe[8] = 256;
+        let twoToThe[9] = 512;
+        let twoToThe[10] = 1024;
+        let twoToThe[11] = 2048;
+        let twoToThe[12] = 4096;
+        let twoToThe[13] = 8192;
+        let twoToThe[14] = 16384;
+        let twoToThe[15] = 32767 + 1;
+        return;
     }
 
     /** Erases the whole screen. */
     function void clearScreen() {
+        var int screenSize, count;
+
+        let count = 0;
+        let screenSize = 8192;
+
+        while (count < screenSize) {
+            do Memory.poke(screen + count, false); //Set white
+            let count = count + 1;
+        }
+        return;
     }
 
     /** Sets the color to be used in further draw commands
      *  where white = false, black = true. */
     function void setColor(boolean b) {
+        let color = b;
+        return;
     }
 
     /** Draws the (x, y) pixel. */
     function void drawPixel(int x, int y) {
+        var int address, value, q, bit, current;
+
+        let address = screen + (y * 32) + (x / 16);
+        let q = x / 16;
+        let bit = x - (q * 16); //bit is now the modulus of column % 16...the bit location we want to set
+        
+        //Get what's already in the address of interest
+        let current = Memory.peek(address);
+        
+        //If black, set color by ORing it up
+        if (color) { let value = twoToThe[bit] | current; }
+        
+        //If white, set color by two-step NANDing it up
+        else { let value = ~twoToThe[bit] & current; }
+
+        //Set color with calculated value
+        do Memory.poke(address, value);
+
+        return;
     }
 
     /** Draws a line from (x1, y1) to (x2, y2). */
     function void drawLine(int x1, int y1, int x2, int y2) {
+        var int a, b, width, height, adyMinusbdx;
+        var boolean wNeg, hNeg, wCond, hCond;
+
+        let a = 0;
+        let b =0;
+
+        let width = x2 - x1;
+        let height = y2 - y1;
+
+        let wNeg = width < 0;
+        let hNeg = height < 0;
+
+        let adyMinusbdx = 0;
+
+        //First drop out of here to handle horizontal and vertical lines
+        if (height = 0) {
+            do Screen.drawHorizLine(x1, y1, x2);
+            return;
+        }
+
+        if (width = 0) {
+            do Screen.drawVertLine(x1, y1, y2);
+            return;
+        }
+
+        if (wNeg) { let wCond = a < width; } 
+        else { let wCond = a > width; }
+
+        if (hNeg) { let hCond = b < height; } 
+        else { let hCond = b > height; }
+        
+        while (~(wCond) & ~(hCond)) {
+            do Screen.drawPixel(x1 + a, y1 + b);
+            if (adyMinusbdx < 0) {
+                if (wNeg) {
+                    let a = a - 1;
+                    let wCond = a < width;
+                } 
+                else {
+                    let a = a + 1;
+                    let wCond = a > width;
+                }
+                if (hNeg) { let adyMinusbdx = adyMinusbdx - height; }
+                else { let adyMinusbdx = adyMinusbdx + height; }
+            } 
+            else {
+                if (hNeg) {
+                    let b = b - 1;
+                    let hCond = b < height;
+                } 
+                else {
+                    let b = b + 1;
+                    let hCond = b > height;
+                }
+                if (wNeg) { let adyMinusbdx = adyMinusbdx + width; } 
+                else { let adyMinusbdx = adyMinusbdx - width; }
+            }
+        }
+        return;
+    }
+
+    function void drawHorizLine(int x1, int y1, int x2) {
+        var int width, a;
+        var boolean wNeg, wCond;
+
+        let a = 0;
+        let width = x2 - x1;
+        let wNeg = width < 0;
+
+        if (wNeg) { let wCond = a < width; } 
+        else { let wCond = a > width; }
+
+        while (~(wCond)) {
+            do Screen.drawPixel(x1 + a, y1);
+            if (wNeg) {
+                let a = a - 1;
+                let wCond = a < width;
+            }  else {
+                let a = a + 1;
+                let wCond = a > width;
+            }
+        }
+
+        return;
+    }
+
+    function void drawVertLine(int x1, int y1, int y2) {
+        var int height, a;
+        var boolean hNeg, hCond;
+
+        let a = 0;
+        let height = y2 - y1;
+        let hNeg = height < 0;
+
+        if (hNeg) { let hCond = a < height; } 
+        else { let hCond = a > height; }
+
+        while (~(hCond)) {
+            do Screen.drawPixel(x1, y1 + a);
+            if (hNeg) {
+                let a = a - 1;
+                let hCond = a < height;
+            }  else {
+                let a = a + 1;
+                let hCond = a > height;
+            }
+        }
+
+        return;
     }
 
     /** Draws a filled rectangle where the top left corner
      *  is (x1, y1) and the bottom right corner is (x2, y2). */
     function void drawRectangle(int x1, int y1, int x2, int y2) {
+        var int width, height, count;
+
+        let width = x2 - x1;
+        let height = y2 - y1;
+        let count = 0;
+
+        while (count < height) {
+            do Screen.drawLine(x1, y1 + count, x1 + width, y1 + count);
+            let count = count + 1;
+        }
+        return;
     }
 
     /** Draws a filled circle of radius r around (cx, cy). */
     function void drawCircle(int cx, int cy, int r) {
+        var int dy, distance;
+
+        let dy = -r;
+
+        while (~(dy > r)) {
+            let distance = Math.sqrt((r * r) - (dy * dy));
+            do Screen.drawHorizLine(cx - distance, cy + dy, cx + distance);
+            let dy = dy + 1;
+        }
+
+        return;
     }
 }

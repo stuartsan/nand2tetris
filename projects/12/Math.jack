@@ -8,31 +8,131 @@
  */
 class Math {
 
+    static Array twoToThe;
+
     /** Initializes the library. */
     function void init() {
+        let twoToThe = Array.new(16);
+        let twoToThe[0] = 1;
+        let twoToThe[1] = 2;
+        let twoToThe[2] = 4;
+        let twoToThe[3] = 8;
+        let twoToThe[4] = 16;
+        let twoToThe[5] = 32;
+        let twoToThe[6] = 64;
+        let twoToThe[7] = 128;
+        let twoToThe[8] = 256;
+        let twoToThe[9] = 512;
+        let twoToThe[10] = 1024;
+        let twoToThe[11] = 2048;
+        let twoToThe[12] = 4096;
+        let twoToThe[13] = 8192;
+        let twoToThe[14] = 16384;
+        let twoToThe[15] = 32767 + 1;
+        return;
     }
 
     /** Returns the absolute value of x. */
     function int abs(int x) {
+        if (x < 0) {
+            return -x;
+        }
+        return x;
     }
 
     /** Returns the product of x and y. */
     function int multiply(int x, int y) {
+        
+        var int sum, shiftedX, count;
+        
+        let sum = 0;
+        let shiftedX = x;
+        let count = 0;
+
+        while (count < 16) {
+            if (Math.bit(y, count)) {
+                let sum = sum + shiftedX;
+            }
+            let shiftedX = shiftedX + shiftedX;
+            let count = count + 1;
+        }
+
+        return sum;
+    }
+
+    /** Returns true if the j-th bit of integer x is 1 and false otherwise*/
+    function boolean bit(int x, int j) {
+         if (x & twoToThe[j]) {
+            return true;
+         }
+         return false;
     }
 
     /** Returns the integer part of x/y. */
     function int divide(int x, int y) {
+        
+        var int xNeg, yNeg;
+        var int quotient, res;
+
+        let xNeg = x < 0;
+        let yNeg = y < 0;
+        let x = Math.abs(x);
+        let y = Math.abs(y);
+
+        if (y > x) {
+            return 0;
+        }
+
+        let quotient = Math.divide(x, y + y);
+
+        if ( x - (2 * quotient * y) < y  ) {
+            let res = quotient + quotient;
+        }
+        else {
+            let res = quotient + quotient + 1;
+        }
+
+        if (xNeg = yNeg) {
+            return res;
+        }
+        else {
+            return -res;
+        }
     }
 
     /** Returns the integer part of the square root of x. */
     function int sqrt(int x) {
+        var int y, j, sum, sumSquared;
+
+        let y = 0;
+        let j = 7; //16 bits / 2 - 1
+
+        while ( ~(j < 0) )  {
+            let sum = y + twoToThe[j];
+            let sumSquared = sum * sum;
+            if (~(sumSquared > x)) {
+                if (sumSquared > 0) {
+                    let y = y + twoToThe[j];
+                }
+            }
+            let j = j - 1;
+        }
+        return y;
     }
 
     /** Returns the greater number. */
     function int max(int a, int b) {
+        if (a < b) {
+            return b;
+        }
+        return a;
     }
 
     /** Returns the smaller number. */
     function int min(int a, int b) {
+        if (a < b) {
+            return a;
+        }
+        return b;
     }
 }
